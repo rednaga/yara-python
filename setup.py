@@ -15,6 +15,7 @@
 #
 
 from distutils.command.build import build
+from distutils.command.install import install
 from setuptools import setup, Extension
 from codecs import open
 
@@ -65,6 +66,10 @@ def has_function(function_name, libraries=None):
     os.remove('a.out')
   return result
 
+class CustomInstall(install):
+  def run(self):
+    self.run_command('build')
+    install.run(self)
 
 class BuildCommand(build):
 
@@ -185,7 +190,10 @@ setup(
     author_email='plusvic@gmail.com;vmalvarez@virustotal.com',
     url='https://github.com/VirusTotal/yara-python',
     zip_safe=False,
-    cmdclass={'build': BuildCommand},
+    cmdclass={
+      'build': BuildCommand,
+      'install': CustomInstall,
+    },
     ext_modules=[Extension(
         name='yara',
         include_dirs=['yara/libyara/include', 'yara/libyara/', 'yara/libyara/modules/', '.'],
