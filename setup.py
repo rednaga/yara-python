@@ -100,6 +100,9 @@ class BuildCommand(build):
 
   def run(self):
     """Execute the build command."""
+    if os.path.exists('.git'):
+      from subprocess import check_call
+      check_call(['git', 'submodule', 'update', '--init', '--recursive'])
 
     module = self.distribution.ext_modules[0]
     base_dir = os.path.dirname(__file__)
@@ -196,5 +199,5 @@ setup(
     },
     ext_modules=[Extension(
         name='yara',
-        include_dirs=['yara/libyara/include', 'yara/libyara/', 'yara/libyara/modules/', '.'],
+        include_dirs=['yara/libyara/include', 'yara/libyara/', '.'],
         sources=['yara-python.c'])])
