@@ -103,7 +103,7 @@ class BuildCommand(build):
       os.chdir(base_dir)
 
     exclusions = ['yara/libyara/modules/pe_utils.c']
-  
+
     if self.plat_name in ('win32','win-amd64'):
       building_for_windows = True
       bits = '64' if self.plat_name == 'win-amd64' else '32'
@@ -188,5 +188,5 @@ setup(
     cmdclass={'build': BuildCommand},
     ext_modules=[Extension(
         name='yara',
-        include_dirs=['yara/libyara/include', 'yara/libyara/', '.'],
+        include_dirs=['yara/libyara/include', 'yara/libyara/', 'yara/libyara/modules/', '.'],
         sources=['yara-python.c'])])
