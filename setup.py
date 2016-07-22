@@ -177,7 +177,7 @@ with open('README.rst', 'r', 'utf-8') as f:
 
 setup(
     name='yara-python',
-    version='3.4.0.999',
+    version='3.4.0.0',
     description='Python interface for YARA',
     long_description=readme,
     license='Apache 2.0',
@@ -188,5 +188,5 @@ setup(
     cmdclass={'build': BuildCommand},
     ext_modules=[Extension(
         name='yara',
-        include_dirs=['yara/libyara/include', 'yara/libyara/', 'yara/libyara/modules/dex.c', '.'],
+        include_dirs=['yara/libyara/include', 'yara/libyara/', 'yara/libyara/modules/', '.'],
         sources=['yara-python.c'])])
