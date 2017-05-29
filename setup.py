@@ -15,13 +15,9 @@
 #
 
 from distutils.command.build import build
-<<<<<<< HEAD
 from distutils.command.install import install
-from setuptools import setup, Extension
-=======
 from distutils.command.build_ext import build_ext
 from setuptools import setup, Command, Extension
->>>>>>> upstream/master
 from codecs import open
 
 import distutils.errors
