@@ -1,3 +1,8 @@
+.. image:: https://travis-ci.org/VirusTotal/yara-python.svg
+    :target: https://travis-ci.org/VirusTotal/yara-python
+.. image:: https://ci.appveyor.com/api/projects/status/gidnb9ulj3rje5s2?svg=true
+    :target: https://ci.appveyor.com/project/plusvic/yara-python
+
 yara-python
 ===========
 

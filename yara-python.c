@@ -409,7 +409,6 @@ PyObject* convert_dictionary_to_python(
 PyObject* convert_object_to_python(
     YR_OBJECT* object)
 {
-  SIZED_STRING* sized_string;
   PyObject* result = NULL;
 
   if (object == NULL)
@@ -418,41 +417,36 @@ PyObject* convert_object_to_python(
   switch(object->type)
   {
     case OBJECT_TYPE_INTEGER:
-      if (((YR_OBJECT_INTEGER*) object)->value != UNDEFINED)
-        result = Py_BuildValue(
-            "i", ((YR_OBJECT_INTEGER*) object)->value);
+      if (object->value.i != UNDEFINED)
+        result = Py_BuildValue("i", object->value.i);
       break;
 
     case OBJECT_TYPE_STRING:
-      sized_string = ((YR_OBJECT_STRING*) object)->value;
-      if (sized_string != NULL)
+      if (object->value.ss != NULL)
         result = PyBytes_FromStringAndSize(
-            sized_string->c_string, sized_string->length);
+            object->value.ss->c_string, 
+            object->value.ss->length);
       break;
 
     case OBJECT_TYPE_STRUCTURE:
-      result = convert_structure_to_python((YR_OBJECT_STRUCTURE*) object);
+      result = convert_structure_to_python(object_as_structure(object));
       break;
 
     case OBJECT_TYPE_ARRAY:
-      result = convert_array_to_python((YR_OBJECT_ARRAY*) object);
+      result = convert_array_to_python(object_as_array(object));
       break;
 
     case OBJECT_TYPE_FUNCTION:
       // Do nothing with functions...
       break;
 
-    case OBJECT_TYPE_REGEXP:
-      // Fairly certain you can't have these. :)
-      break;
-
     case OBJECT_TYPE_DICTIONARY:
-      result = convert_dictionary_to_python((YR_OBJECT_DICTIONARY*) object);
+      result = convert_dictionary_to_python(object_as_dictionary(object));
       break;
 
     case OBJECT_TYPE_FLOAT:
-      if (!isnan(((YR_OBJECT_DOUBLE*) object)->value))
-        result = Py_BuildValue("d", ((YR_OBJECT_DOUBLE*) object)->value);
+      if (!isnan(object->value.d))
+        result = Py_BuildValue("d", object->value.d);
       break;
 
     default:
@@ -641,12 +635,12 @@ int yara_callback(
     gil_state = PyGILState_Ensure();
 
     module_info_dict = convert_structure_to_python(
-        (YR_OBJECT_STRUCTURE*) message_data);
+        object_as_structure(message_data));
 
     if (module_info_dict == NULL)
       return CALLBACK_CONTINUE;
 
-    object = PY_STRING(((YR_OBJECT_STRUCTURE*) message_data)->identifier);
+    object = PY_STRING(object_as_structure(message_data)->identifier);
     PyDict_SetItemString(module_info_dict, "module", object);
     Py_DECREF(object);
 
@@ -1650,7 +1644,8 @@ void raise_exception_on_error(
     else
       PyErr_Format(
           YaraSyntaxError,
-          "%s",
+          "line %d: %s",
+          line_number,
           message);
   }
 }
@@ -1675,7 +1670,8 @@ void raise_exception_on_error_or_warning(
     else
       PyErr_Format(
           YaraSyntaxError,
-          "%s",
+          "line %d: %s",
+          line_number,
           message);
   }
   else
@@ -1690,7 +1686,8 @@ void raise_exception_on_error_or_warning(
     else
       PyErr_Format(
           YaraWarningError,
-          "%s",
+          "line %d: %s",
+          line_number,
           message);
   }
 }
@@ -1829,9 +1826,16 @@ static PyObject* yara_compile(
     else if (file != NULL)
     {
       fd = dup(PyObject_AsFileDescriptor(file));
-      fh = fdopen(fd, "r");
-      error = yr_compiler_add_file(compiler, fh, NULL, NULL);
-      fclose(fh);
+      if (fd != -1) {
+        fh = fdopen(fd, "r");
+        error = yr_compiler_add_file(compiler, fh, NULL, NULL);
+        fclose(fh);
+      }
+      else {
+        result = PyErr_Format(
+            PyExc_TypeError,
+            "'file' is not a file object");
+      }
     }
     else if (sources_dict != NULL)
     {

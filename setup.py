@@ -15,8 +15,13 @@
 #
 
 from distutils.command.build import build
+<<<<<<< HEAD
 from distutils.command.install import install
 from setuptools import setup, Extension
+=======
+from distutils.command.build_ext import build_ext
+from setuptools import setup, Command, Extension
+>>>>>>> upstream/master
 from codecs import open
 
 import distutils.errors
@@ -29,6 +34,23 @@ import sys
 import tempfile
 import shutil
 import subprocess
+
+
+OPTIONS = [
+   ('dynamic-linking', None, 'link dynamically against libyara'),
+   ('enable-cuckoo', None, 'enable "cuckoo" module'),
+   ('enable-magic', None, 'enable "magic" module'),
+   ('enable-dotnet', None, 'enable "dotnet" module'),
+   ('enable-profiling', None, 'enable profiling features')]
+
+
+BOOLEAN_OPTIONS = [
+    'dynamic-linking',
+    'enable-cuckoo',
+    'enable-magic',
+    'enable-dotnet',
+    'enable-profiling']
+
 
 @contextlib.contextmanager
 def muted(*streams):
@@ -73,30 +95,61 @@ class CustomInstall(install):
 
 class BuildCommand(build):
 
-  user_options = build.user_options + [
-      ('dynamic-linking', None,'link dynamically against libyara'),
-      ('enable-cuckoo', None,'enable "cuckoo" module'),
-      ('enable-magic', None,'enable "magic" module'),
-      ('enable-profiling', None,'enable profiling features')]
-
-  boolean_options = build.boolean_options + [
-      'dynamic-linking', 'enable-cuckoo', 'enable-magic', 'enable-profiling']
+  user_options = build.user_options + OPTIONS
+  boolean_options = build.boolean_options + BOOLEAN_OPTIONS
 
   def initialize_options(self):
+
     build.initialize_options(self)
     self.dynamic_linking = None
     self.enable_magic = None
     self.enable_cuckoo = None
+    self.enable_dotnet = None
     self.enable_profiling = None
 
   def finalize_options(self):
+
     build.finalize_options(self)
+
+
+
+class BuildExtCommand(build_ext):
+
+  user_options = build_ext.user_options + OPTIONS
+  boolean_options = build_ext.boolean_options + BOOLEAN_OPTIONS
+
+  def initialize_options(self):
+
+    build_ext.initialize_options(self)
+    self.dynamic_linking = None
+    self.enable_magic = None
+    self.enable_cuckoo = None
+    self.enable_dotnet = None
+    self.enable_profiling = None
+
+  def finalize_options(self):
+
+    build_ext.finalize_options(self)
+
+    # If the build_ext command was invoked by the build command, take the
+    # values for these options from the build command.
+
+    self.set_undefined_options('build',
+        ('dynamic_linking', 'dynamic_linking'),
+        ('enable_magic', 'enable_magic'),
+        ('enable_cuckoo', 'enable_cuckoo'),
+        ('enable_dotnet', 'enable_dotnet'),
+        ('enable_profiling', 'enable_profiling'))
+
     if self.enable_magic and self.dynamic_linking:
       raise distutils.errors.DistutilsOptionError(
           '--enable-magic can''t be used with --dynamic-linking')
     if self.enable_cuckoo and self.dynamic_linking:
       raise distutils.errors.DistutilsOptionError(
           '--enable-cuckoo can''t be used with --dynamic-linking')
+    if self.enable_dotnet and self.dynamic_linking:
+      raise distutils.errors.DistutilsOptionError(
+          '--enable-dotnet can''t be used with --dynamic-linking')
 
   def run(self):
     """Execute the build command."""
@@ -110,25 +163,37 @@ class BuildCommand(build):
     if base_dir:
       os.chdir(base_dir)
 
-    #exclusions = ['yara/libyara/modules/pe_utils.c']
     exclusions = []
+
+    for define in self.define or []:
+      module.define_macros.append(define)
+
+    for library in self.libraries or []:
+      module.libraries.append(library)
 
     if self.plat_name in ('win32','win-amd64'):
       building_for_windows = True
-      bits = '64' if self.plat_name == 'win-amd64' else '32'
-      module.define_macros.append(('_CRT_SECURE_NO_WARNINGS','1'))
-      module.include_dirs.append('yara/windows/include')
-      module.libraries.append('advapi32')
-      module.libraries.append('user32')
     else:
       building_for_windows = False
 
     if 'macosx' in self.plat_name:
       building_for_osx = True
-      module.include_dirs.append('/opt/local/include')
-      module.library_dirs.append('/opt/local/lib')
     else:
       building_for_osx = False
+
+    if building_for_windows:
+      module.define_macros.append(('_CRT_SECURE_NO_WARNINGS', '1'))
+      module.libraries.append('kernel32')
+      module.libraries.append('advapi32')
+      module.libraries.append('user32')
+      module.libraries.append('crypt32')
+      module.libraries.append('ws2_32')
+
+    if building_for_osx:
+      module.include_dirs.append('/opt/local/include')
+      module.library_dirs.append('/opt/local/lib')
+      module.include_dirs.append('/usr/local/include')
+      module.library_dirs.append('/usr/local/lib')
 
     if has_function('memmem'):
       module.define_macros.append(('HAVE_MEMMEM', '1'))
@@ -143,32 +208,30 @@ class BuildCommand(build):
     if self.dynamic_linking:
       module.libraries.append('yara')
     else:
-      if building_for_windows:
-        module.library_dirs.append('yara/windows/lib')
-
-      if building_for_windows:
-        module.define_macros.append(('HASH_MODULE', '1'))
-        module.libraries.append('libeay%s' % bits)
-      elif (has_function('MD5_Init', libraries=['crypto']) and
-          has_function('SHA256_Init', libraries=['crypto'])):
-        module.define_macros.append(('HASH_MODULE', '1'))
-        module.libraries.append('crypto')
-      else:
-        exclusions.append('yara/libyara/modules/hash.c')
+      if not self.define or not ('HASH_MODULE', '1') in self.define:
+        if (has_function('MD5_Init', libraries=['crypto']) and
+            has_function('SHA256_Init', libraries=['crypto'])):
+          module.define_macros.append(('HASH_MODULE', '1'))
+          module.libraries.append('crypto')
+        else:
+          exclusions.append('yara/libyara/modules/hash.c')
 
       if self.enable_magic:
         module.define_macros.append(('MAGIC_MODULE', '1'))
+        module.libraries.append('magic')
       else:
         exclusions.append('yara/libyara/modules/magic.c')
 
       if self.enable_cuckoo:
         module.define_macros.append(('CUCKOO_MODULE', '1'))
-        if building_for_windows:
-          module.libraries.append('jansson%s' % bits)
-        else:
-          module.libraries.append('jansson')
+        module.libraries.append('jansson')
       else:
         exclusions.append('yara/libyara/modules/cuckoo.c')
+
+      if self.enable_dotnet:
+        module.define_macros.append(('DOTNET_MODULE', '1'))
+      else:
+        exclusions.append('yara/libyara/modules/dotnet.c')
 
       exclusions = [os.path.normpath(x) for x in exclusions]
 
@@ -178,7 +241,40 @@ class BuildCommand(build):
           if x.endswith('.c') and x not in exclusions:
             module.sources.append(x)
 
-    build.run(self)
+    build_ext.run(self)
+
+
+class UpdateCommand(Command):
+  """Update libyara source.
+
+  This is normally only run by packagers to make a new release.
+  """
+  user_options = []
+
+  def initialize_options(self):
+    pass
+
+  def finalize_options(self):
+    pass
+
+  def run(self):
+    subprocess.check_call(['git', 'stash'], cwd='yara')
+
+    subprocess.check_call(['git', 'submodule', 'init'])
+    subprocess.check_call(['git', 'submodule', 'update'])
+
+    subprocess.check_call(['git', 'reset', '--hard'], cwd='yara')
+    subprocess.check_call(['git', 'clean', '-x', '-f', '-d'], cwd='yara')
+
+    subprocess.check_call(['git', 'checkout', 'master'], cwd='yara')
+    subprocess.check_call(['git', 'pull'], cwd='yara')
+    subprocess.check_call(['git', 'fetch', '--tags'], cwd='yara')
+
+    tag_name = 'tags/v%s' % self.distribution.metadata.version
+    subprocess.check_call(['git', 'checkout', tag_name], cwd='yara')
+
+    subprocess.check_call(['./bootstrap.sh'], cwd='yara')
+    subprocess.check_call(['./configure'], cwd='yara')
 
 
 with open('README.rst', 'r', 'utf-8') as f:
@@ -186,7 +282,7 @@ with open('README.rst', 'r', 'utf-8') as f:
 
 setup(
     name='yara-python',
-    version='3.5.0.999',
+    version='3.6.0.999',
     description='Python interface for YARA',
     long_description=readme,
     license='Apache 2.0',
@@ -195,9 +291,10 @@ setup(
     url='https://github.com/VirusTotal/yara-python',
     zip_safe=False,
     cmdclass={
-      'build': BuildCommand,
-      'install': CustomInstall,
-    },
+        'build': BuildCommand,
+        'install': CustomInstall,
+        'build_ext': BuildExtCommand,
+        'update': UpdateCommand},
     ext_modules=[Extension(
         name='yara',
         include_dirs=['yara/libyara/include', 'yara/libyara/', '.'],

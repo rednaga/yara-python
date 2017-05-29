@@ -1,0 +1,176 @@
+environment:
+  global:
+    # SDK v7.0 MSVC Express 2008's SetEnv.cmd script will fail if the
+    # /E:ON and /V:ON options are not enabled in the batch script intepreter
+    # See: http://stackoverflow.com/a/13751649/163740
+    CMD_IN_ENV: "cmd /E:ON /V:ON /C .\\appveyor\\run_with_env.cmd"
+    JANSSON_VERSION: "2.10"
+
+  matrix:
+
+    # Python versions not pre-installed
+
+    # Python 2.6.6 is the latest Python 2.6 with a Windows installer
+    # See: https://github.com/ogrisel/python-appveyor-demo/issues/10
+
+    - PYTHON: "C:\\Python266"
+      PYTHON_VERSION: "2.6.6"
+      PYTHON_ARCH: "32"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2008"
+      VS: "Visual Studio 9 2008"
+
+    - PYTHON: "C:\\Python266-x64"
+      PYTHON_VERSION: "2.6.6"
+      PYTHON_ARCH: "64"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2008"
+      VS: "Visual Studio 9 2008 Win64"
+
+    # Pre-installed Python versions, which Appveyor may upgrade to
+    # a later point release.
+    # See: http://www.appveyor.com/docs/installed-software#python
+
+    - PYTHON: "C:\\Python27"
+      PYTHON_VERSION: "2.7.x" # currently 2.7.13
+      PYTHON_ARCH: "32"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2008"
+      VS: "Visual Studio 9 2008"
+
+    - PYTHON: "C:\\Python27-x64"
+      PYTHON_VERSION: "2.7.x" # currently 2.7.13
+      PYTHON_ARCH: "64"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2008"
+      VS: "Visual Studio 9 2008 Win64"
+
+    - PYTHON: "C:\\Python33"
+      PYTHON_VERSION: "3.3.x" # currently 3.3.5
+      PYTHON_ARCH: "32"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2010"
+      VS: "Visual Studio 10 2010"
+
+    - PYTHON: "C:\\Python33-x64"
+      PYTHON_VERSION: "3.3.x" # currently 3.3.5
+      PYTHON_ARCH: "64"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2010"
+      VS: "Visual Studio 10 2010 Win64"
+
+    - PYTHON: "C:\\Python34"
+      PYTHON_VERSION: "3.4.x" # currently 3.4.4
+      PYTHON_ARCH: "32"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2010"
+      VS: "Visual Studio 10 2010"
+
+    - PYTHON: "C:\\Python34-x64"
+      PYTHON_VERSION: "3.4.x" # currently 3.4.4
+      PYTHON_ARCH: "64"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2010"
+      VS: "Visual Studio 10 2010 Win64"
+
+    - PYTHON: "C:\\Python35"
+      PYTHON_VERSION: "3.5.x" # currently 3.5.3
+      PYTHON_ARCH: "32"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2015"
+      VS: "Visual Studio 14 2015"
+
+    - PYTHON: "C:\\Python35-x64"
+      PYTHON_VERSION: "3.5.x" # currently 3.5.3
+      PYTHON_ARCH: "64"
+      OPENSSL_LIB: "openssl-1.1.0e-vs2015"
+      VS: "Visual Studio 14 2015 Win64"
+
+install:
+  # If there is a newer build queued for the same PR, cancel this one.
+  # The AppVeyor 'rollout builds' option is supposed to serve the same
+  # purpose but it is problematic because it tends to cancel builds pushed
+  # directly to master instead of just PR builds (or the converse).
+  # credits: JuliaLang developers.
+  - ps: if ($env:APPVEYOR_PULL_REQUEST_NUMBER -and $env:APPVEYOR_BUILD_NUMBER -ne ((Invoke-RestMethod `
+        https://ci.appveyor.com/api/projects/$env:APPVEYOR_ACCOUNT_NAME/$env:APPVEYOR_PROJECT_SLUG/history?recordsNumber=50).builds | `
+        Where-Object pullRequestId -eq $env:APPVEYOR_PULL_REQUEST_NUMBER)[0].buildNumber) { `
+          throw "There are newer queued builds for this pull request, failing early." }
+
+  # Install Python (from the official .msi of http://python.org) and pip when
+  # not already installed.
+  - ps: if (-not(Test-Path($env:PYTHON))) { & appveyor\install.ps1 }
+
+  - "echo %APPVEYOR_BUILD_WORKER_IMAGE%"
+
+  # Prepend newly installed Python to the PATH of this build (this cannot be
+  # done from inside the powershell script as it would require to restart
+  # the parent CMD process).
+  - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%"
+
+  # Check that we have the expected version and architecture for Python
+  - "python --version"
+  - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
+
+  # Upgrade to the latest version of pip to avoid it displaying warnings
+  # about it being out of date.
+  - "pip install --disable-pip-version-check --user --upgrade pip"
+
+  # Install the build dependencies of the project. If some dependencies contain
+  # compiled extensions and are not provided as pre-built wheel packages,
+  # pip will build them from source using the MSVC compiler matching the
+  # target Python version and architecture
+  - "%CMD_IN_ENV% pip install wheel"
+
+  - cd ..
+  - ps: Invoke-WebRequest "https://www.npcglib.org/~stathis/downloads/$env:OPENSSL_LIB.7z" -OutFile "openssl.7z"
+  - 7z x openssl.7z
+  - cd yara-python
+
+  - ps: >-
+      If ($env:PYTHON_ARCH -Match "32") {
+        $env:OPENSSL_LIB_DIR="lib"
+      } Else {
+        $env:OPENSSL_LIB_DIR="lib64"
+      }
+
+  # This is workaround for solving an issue caused by CMake not finding an
+  # appropriate compilet for Visual Studio 9 2008 Win64. This workaround was
+  # copied from: https://github.com/conda/conda-build/blob/master/appveyor.yml
+  - call appveyor\setup_x64.bat
+
+  # Download and build jansson library
+  - cd ..
+  - ps: Invoke-WebRequest "https://github.com/akheron/jansson/archive/v$env:JANSSON_VERSION.zip" -OutFile "jansson.zip"
+  - ps: Expand-Archive jansson.zip -DestinationPath .
+  - cd jansson-%JANSSON_VERSION%
+  - md build
+  - cd build
+  - cmake -DJANSSON_BUILD_DOCS=OFF -DJANSSON_WITHOUT_TESTS=ON -G "%VS%" ..
+  - cmake --build . --config Release
+  - cd ../../yara-python
+
+
+clone_script:
+- cmd: git clone -q --recursive --branch=%APPVEYOR_REPO_BRANCH% https://github.com/%APPVEYOR_REPO_NAME%.git %APPVEYOR_BUILD_FOLDER%
+- cmd: git checkout -qf %APPVEYOR_REPO_COMMIT%
+
+build_script:
+  # Build the compiled extension
+  - "%CMD_IN_ENV% python setup.py build_ext --enable-cuckoo --enable-dotnet
+    -L../jansson-%JANSSON_VERSION%/build/lib/Release;../%OPENSSL_LIB%/%OPENSSL_LIB_DIR%
+    -I../jansson-%JANSSON_VERSION%/build/include;../%OPENSSL_LIB%/include
+    -DHASH_MODULE -DHAVE_LIBCRYPTO
+    -llibcryptoMT"
+
+after_build:
+  - "%CMD_IN_ENV% python setup.py install"
+
+test_script:
+  # Run the project tests
+  - "%CMD_IN_ENV% python tests.py"
+
+after_test:
+  # If tests are successful, create binary packages for the project.
+  - "%CMD_IN_ENV% python setup.py bdist_wheel"
+  - "%CMD_IN_ENV% python setup.py bdist_wininst"
+  - "%CMD_IN_ENV% python setup.py bdist_msi"
+
+artifacts:
+  # Archive the generated packages in the ci.appveyor.com build report.
+  - path: dist\*
+
+#on_success:
+#  - TODO: upload the content of dist/*.whl to a public wheelhouse
+#
