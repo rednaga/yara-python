@@ -14,9 +14,16 @@
 # limitations under the License.
 #
 
-from distutils.command.build import build
-from distutils.command.install import install
-from distutils.command.build_ext import build_ext
+
+try:
+    from setuptools.command.build import build
+    from setuptools.command.install import install
+    from setuptools.command.build_ext import build_ext
+except ImportError:
+    from distutils.command.build import build
+    from distutils.command.install import install
+    from distutils.command.build_ext import build_ext
+
 from setuptools import setup, Command, Extension
 from codecs import open
 
